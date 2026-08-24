@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -11,14 +11,14 @@
     <AssemblyName>WordPad</AssemblyName>
     <DefaultLanguage>en-US</DefaultLanguage>
     <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
-    <TargetPlatformVersion Condition=" '$(TargetPlatformVersion)' == '' ">10.0.19041.0</TargetPlatformVersion>
+    <TargetPlatformVersion Condition=" '$(TargetPlatformVersion)' == '' ">10.0.26100.0</TargetPlatformVersion>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <MinimumVisualStudioVersion>14</MinimumVisualStudioVersion>
     <FileAlignment>512</FileAlignment>
     <ProjectTypeGuids>{A5A43C5B-DE2A-4C0C-9213-0A381AF9435A};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <WindowsXamlEnableOverview>true</WindowsXamlEnableOverview>
-    <AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
-    <PackageCertificateThumbprint>36F4E6C1A5E78A160B8968BD7E40FBB4C3C09BAB</PackageCertificateThumbprint>
+    <AppxPackageSigningEnabled>False</AppxPackageSigningEnabled>
+    <PackageCertificateThumbprint></PackageCertificateThumbprint>
     <PackageCertificateKeyFile>
     </PackageCertificateKeyFile>
     <GenerateAppInstallerFile>False</GenerateAppInstallerFile>
@@ -28,7 +28,7 @@
     <AppxBundle>Always</AppxBundle>
     <AppxBundlePlatforms>x64</AppxBundlePlatforms>
     <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
-    <AppxPackageDir>C:\Users\komp\Desktop\outputAPPX\</AppxPackageDir>
+    <AppxPackageDir>AppxPackages\</AppxPackageDir>
     <AppxSymbolPackageEnabled>False</AppxSymbolPackageEnabled>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Debug|x86'">
@@ -137,6 +137,9 @@
     <Compile Include="App.xaml.cs">
       <DependentUpon>App.xaml</DependentUpon>
     </Compile>
+    <Compile Include="Classes\CanvasPage.cs" />
+    <Compile Include="Classes\DatabaseService.cs" />
+    <Compile Include="Classes\Topic.cs" />
     <Compile Include="Classes\CUnit.cs" />
     <Compile Include="Editor.cs" />
     <Compile Include="Helpers\FileFormatsHelper.cs" />
@@ -431,9 +434,23 @@
     <PackageReference Include="Microsoft.UI.Xaml">
       <Version>2.8.2</Version>
     </PackageReference>
+    <PackageReference Include="sqlite-net-pcl">
+      <Version>1.8.116</Version>
+    </PackageReference>
+    <PackageReference Include="Win2D.uwp">
+      <Version>1.26.0</Version>
+    </PackageReference>
   </ItemGroup>
   <ItemGroup>
     <Content Include="Assets\WordPadIcons.ttf" />
+    <Content Include="Assets\Fonts\BeVietnamPro-Regular.ttf" />
+    <Content Include="Assets\Fonts\BeVietnamPro-SemiBold.ttf" />
+    <Content Include="Assets\Fonts\BeVietnamPro-Bold.ttf" />
+    <Content Include="Assets\Fonts\CormorantInfant-Regular.ttf" />
+    <Content Include="Assets\Fonts\CormorantInfant-SemiBold.ttf" />
+    <Content Include="Assets\Fonts\CormorantInfant-Bold.ttf" />
+    <Content Include="Assets\Fonts\Fraunces.ttf" />
+    <Content Include="Assets\Fonts\Literata.ttf" />
   </ItemGroup>
   <ItemGroup>
     <PRIResource Include="Strings\en-US\Resources.resw">
