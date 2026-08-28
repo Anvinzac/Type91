@@ -295,7 +295,20 @@
             </Grid.RowDefinitions>
 
             <StackPanel Margin="16" Spacing="8">
-                <TextBlock Text="Thư viện" Style="{StaticResource TitleTextBlockStyle}" FontWeight="Bold" Margin="0,0,0,4"/>
+                <Grid>
+                    <TextBlock Text="Thư viện" Style="{StaticResource TitleTextBlockStyle}" FontWeight="Bold" VerticalAlignment="Center"/>
+                    <Button x:Name="OpenSettingsButton"
+                            Content="&#xE713;"
+                            FontFamily="{StaticResource SegoeFluentIcons}"
+                            Width="32"
+                            Height="32"
+                            Padding="0"
+                            HorizontalAlignment="Right"
+                            Click="OpenSettingsButton_Click"
+                            ToolTipService.ToolTip="Settings"
+                            Background="Transparent"
+                            BorderThickness="0"/>
+                </Grid>
                 <Button Content="Kệ mới"
                         Click="NewShelfButton_Click"
                         HorizontalAlignment="Stretch"/>
@@ -480,7 +493,13 @@
                     </StackPanel>
                 </StackPanel>
 
-                <Canvas x:Name="ExportHost" Width="1" Height="1" Opacity="0" IsHitTestVisible="False"/>
+                <Canvas x:Name="ExportHost"
+                        Width="1080"
+                        Height="1920"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Top"
+                        Opacity="0"
+                        IsHitTestVisible="False"/>
 
                 <Border x:Name="ExportOverlay"
                         Visibility="Collapsed"

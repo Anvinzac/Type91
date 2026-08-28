@@ -449,8 +449,12 @@
     <Content Include="Assets\Fonts\CormorantInfant-Regular.ttf" />
     <Content Include="Assets\Fonts\CormorantInfant-SemiBold.ttf" />
     <Content Include="Assets\Fonts\CormorantInfant-Bold.ttf" />
-    <Content Include="Assets\Fonts\Fraunces.ttf" />
-    <Content Include="Assets\Fonts\Literata.ttf" />
+    <Content Include="Assets\Fonts\Fraunces-Regular.ttf" />
+    <Content Include="Assets\Fonts\Fraunces-SemiBold.ttf" />
+    <Content Include="Assets\Fonts\Fraunces-Bold.ttf" />
+    <Content Include="Assets\Fonts\Literata-Regular.ttf" />
+    <Content Include="Assets\Fonts\Literata-SemiBold.ttf" />
+    <Content Include="Assets\Fonts\Literata-Bold.ttf" />
   </ItemGroup>
   <ItemGroup>
     <PRIResource Include="Strings\en-US\Resources.resw">

@@ -21,6 +21,7 @@ namespace RectifyPad
         public string LockedFontName { get; set; }
         public int LockedWeight { get; set; }
         public FontFamily LockedFontFamily { get; set; }
+        public float LockedSize { get; set; }
 
         public Editor()
         {
@@ -119,6 +120,7 @@ namespace RectifyPad
 
             ApplyLockedTypefaceToSelection();
             ApplyLockedTypefaceToDefaults();
+            ApplyLockedSizeToCaret();
         }
 
         private void ApplyLockedTypefaceToSelection()
@@ -134,6 +136,11 @@ namespace RectifyPad
                 if (LockedWeight > 0)
                 {
                     Document.Selection.CharacterFormat.Weight = LockedWeight;
+                }
+
+                if (LockedSize > 8f)
+                {
+                    Document.Selection.CharacterFormat.Size = LockedSize;
                 }
             }
             catch (ArgumentException)
@@ -157,6 +164,11 @@ namespace RectifyPad
                     defaults.Weight = LockedWeight;
                 }
 
+                if (LockedSize > 8f)
+                {
+                    defaults.Size = LockedSize;
+                }
+
                 Document.SetDefaultCharacterFormat(defaults);
             }
             catch (ArgumentException)
@@ -172,6 +184,8 @@ namespace RectifyPad
                 ApplyLockedTypefaceToDefaults();
                 ApplyLockedTypefaceToSelection();
             }
+
+            ApplyLockedSizeToCaret();
         }
 
         private void OnTextChanging(RichEditBox sender, RichEditBoxTextChangingEventArgs args)
@@ -186,6 +200,28 @@ namespace RectifyPad
             {
                 ApplyLockedTypefaceToDefaults();
                 ApplyLockedTypefaceToSelection();
+            }
+
+            ApplyLockedSizeToCaret();
+        }
+
+        private void ApplyLockedSizeToCaret()
+        {
+            if (Document?.Selection == null || LockedSize < 8f)
+            {
+                return;
+            }
+
+            try
+            {
+                Document.Selection.CharacterFormat.Size = LockedSize;
+                var defaults = Document.GetDefaultCharacterFormat();
+                defaults.Size = LockedSize;
+                Document.SetDefaultCharacterFormat(defaults);
+                FontSize = LockedSize;
+            }
+            catch (ArgumentException)
+            {
             }
         }
 
