@@ -18,8 +18,8 @@ namespace RectifyPad.Classes
         private string _fontSize = "96";
         private string _fontWeight = "SemiBold";
         private string _alignment = "Center";
-        private string _textColor = "Black";
-        private string _backgroundColor = "#FAF4EC";
+        private string _textColor = "Graphite";
+        private string _backgroundColor = "#F5F5F7";
         private bool _useRoundedRect;
         private string _lineSpacing = "1.1";
         private bool _applyToAll;
@@ -153,6 +153,93 @@ namespace RectifyPad.Classes
         }
     }
 
+    public sealed class CanvasTheme
+    {
+        public CanvasTheme(string name, string paperName, string paperHex, string ink, bool isDark)
+        {
+            Name = name;
+            PaperName = paperName;
+            PaperHex = paperHex;
+            Ink = ink;
+            IsDark = isDark;
+        }
+
+        public string Name { get; }
+        public string PaperName { get; }
+        public string PaperHex { get; }
+        public string Ink { get; }
+        public bool IsDark { get; }
+    }
+
+    public static class CanvasThemes
+    {
+        public static readonly string[][] Inks =
+        {
+            new[] { "Graphite", "#1D1D1F" },
+            new[] { "Slate", "#48484A" },
+            new[] { "Ink Blue", "#1E2A3B" },
+            new[] { "Silver", "#F5F5F7" },
+            new[] { "Mist", "#D1D1D6" },
+            new[] { "Ice", "#DCE6F2" }
+        };
+
+        public static readonly CanvasTheme[] All =
+        {
+            new CanvasTheme("Pearl", "Ngọc trai", "#FBFBFD", "Graphite", false),
+            new CanvasTheme("Mist", "Sương", "#F5F5F7", "Graphite", false),
+            new CanvasTheme("Glacier", "Sương lam", "#EEF2F7", "Ink Blue", false),
+            new CanvasTheme("Stone", "Đá", "#EFEDEA", "Slate", false),
+            new CanvasTheme("Platinum", "Bạch kim", "#E8E8ED", "Graphite", false),
+            new CanvasTheme("Titanium", "Titan", "#3A3A3C", "Silver", true),
+            new CanvasTheme("Space Gray", "Xám không gian", "#2C2C2E", "Mist", true),
+            new CanvasTheme("Midnight Blue", "Lam đêm", "#0E1726", "Ice", true),
+            new CanvasTheme("Graphite", "Than chì", "#1D1D1F", "Silver", true),
+            new CanvasTheme("Obsidian", "Đêm sâu", "#000000", "Silver", true)
+        };
+
+        public static CanvasTheme Find(string name)
+        {
+            foreach (var theme in All)
+            {
+                if (string.Equals(theme.Name, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return theme;
+                }
+            }
+
+            return null;
+        }
+
+        public static CanvasTheme Match(string paperHex, string ink)
+        {
+            foreach (var theme in All)
+            {
+                if (string.Equals(theme.PaperHex, paperHex, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(theme.Ink, ink, StringComparison.OrdinalIgnoreCase))
+                {
+                    return theme;
+                }
+            }
+
+            return null;
+        }
+
+        public static bool TryInkHex(string name, out string hex)
+        {
+            foreach (var ink in Inks)
+            {
+                if (string.Equals(ink[0], name, StringComparison.OrdinalIgnoreCase))
+                {
+                    hex = ink[1];
+                    return true;
+                }
+            }
+
+            hex = null;
+            return false;
+        }
+    }
+
     public static class CanvasContrast
     {
         public static bool IsDarkBackground(string hex)
@@ -166,7 +253,8 @@ namespace RectifyPad.Classes
 
         public static bool IsDarkInk(string name)
         {
-            return name == "Black" || name == "Navy" || name == "Dark Gray" || name == "Blue";
+            return name == "Black" || name == "Graphite" || name == "Slate" || name == "Ink Blue" ||
+                   name == "Navy" || name == "Dark Gray" || name == "Blue";
         }
 
         public static string InkFor(string backgroundHex, string textColor)
@@ -176,7 +264,7 @@ namespace RectifyPad.Classes
 
         public static string PaperForInk(Color ink, string currentHex, IReadOnlyList<string> papers)
         {
-            string current = string.IsNullOrWhiteSpace(currentHex) ? "#FAF4EC" : currentHex;
+            string current = string.IsNullOrWhiteSpace(currentHex) ? "#F5F5F7" : currentHex;
             if (current[0] != '#')
             {
                 current = "#" + current;

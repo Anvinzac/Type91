@@ -11,6 +11,7 @@ namespace RectifyPad.Classes
     public class DatabaseService
     {
         private const int MockSeedVersion = 10;
+        private const int ThemeEditionSeedVersion = 1;
         private readonly SQLiteAsyncConnection _db;
 
         public DatabaseService()
@@ -27,6 +28,49 @@ namespace RectifyPad.Classes
             await EnsureTopicColumnsAsync();
             await EnsurePageStyleColumnsAsync();
             await SeedMockVietnameseAsync();
+            await SeedThemeEditionAsync();
+        }
+
+        public async Task SeedThemeEditionAsync()
+        {
+            var localSettings = ApplicationData.Current.LocalSettings;
+            object stored = localSettings.Values["ThemeEditionSeedVersion"];
+            int current = stored is int intValue ? intValue : stored is long longValue ? (int)longValue : 0;
+            if (current >= ThemeEditionSeedVersion)
+            {
+                return;
+            }
+
+            var shelves = await _db.Table<LibraryShelf>().ToListAsync();
+            int top = shelves.Count == 0 ? 0 : shelves.Min(s => s.SortIndex) - 1;
+            var edition = await InsertLibraryAsync("Ấn bản thanh lịch", top);
+
+            await InsertTopicAsync(
+                edition.Id,
+                "Một ngày trong ánh bạc",
+                "Mười màn hình, từ sáng sớm đến nửa đêm",
+                DateTime.Now,
+                new[]
+                {
+                    Themed("Buổi sáng mở ra như một trang giấy chưa ai viết. Ánh sáng đến trước, chữ đến sau, tôi chờ câu đầu tiên tự tìm đường.", "Pearl", "Be Vietnam Pro", "SemiBold", "Center"),
+                    Themed("Ly nước giữ một mảnh trời rất nhỏ. Tôi không uống vội, chỉ nhìn ánh sáng đi qua thủy tinh như một ý nghĩ trong veo.", "Mist", "Literata", "Normal", "Left"),
+                    Themed("Gió trưa mang màu xanh của kính. Thành phố ngoài cửa sổ im như bản vẽ, đường nét thẳng và tiếng ồn ở rất xa.", "Glacier", "Be Vietnam Pro", "Normal", "Center"),
+                    Themed("Chiều nghiêng trên bức tường đá ấm. Tôi viết chậm hơn, xóa nhiều hơn, vì chữ đẹp nhất thường ngắn và đầy khoảng lặng.", "Stone", "Fraunces", "Normal", "Right"),
+                    Themed("Hoàng hôn không đỏ như người ta kể. Nó bạc dần, mỏng dần, như kim loại đánh bóng đến khi chỉ còn ánh phản chiếu.", "Platinum", "Be Vietnam Pro", "SemiBold", "Center"),
+                    Themed("Đèn bật lên từng ô một. Căn phòng tối vừa đủ để chữ sáng hơn, tôi viết rõ nhất khi xung quanh im nhất.", "Titanium", "Literata", "SemiBold", "Left"),
+                    Themed("Màn hình là ô cửa sổ không có gió. Tôi đặt vào đó một câu, rồi câu nữa, như xếp đá cuội bên bờ sông đêm.", "Space Gray", "Be Vietnam Pro", "Normal", "Center"),
+                    Themed("Trời đêm xanh như mực chưa khô. Những vì sao không nói gì, chỉ đứng đúng chỗ, thế là đủ thành một bố cục hoàn hảo.", "Midnight Blue", "Cormorant Infant", "SemiBold", "Center"),
+                    Themed("Gần nửa đêm, mọi thứ thừa đều đã ngủ. Chỉ còn lại một dòng chữ, một nhịp thở, và ánh sáng vừa đủ để không ai lạc.", "Graphite", "Be Vietnam Pro", "SemiBold", "Left"),
+                    Themed("Tôi tắt màn hình. Bóng tối không xóa những gì đã viết, nó chỉ giữ chúng lại như một chiếc hộp đen tuyền cho buổi sáng mai.", "Obsidian", "Literata", "Normal", "Center")
+                });
+
+            localSettings.Values["ThemeEditionSeedVersion"] = ThemeEditionSeedVersion;
+        }
+
+        private static CanvasPage Themed(string text, string themeName, string fontFamily, string fontWeight, string alignment)
+        {
+            var theme = CanvasThemes.Find(themeName);
+            return Page(text, fontFamily, "96", fontWeight, alignment, theme.Ink, theme.PaperHex, false, "1.1");
         }
 
         private async Task EnsurePageStyleColumnsAsync()
@@ -90,6 +134,7 @@ namespace RectifyPad.Classes
             await _db.DeleteAllAsync<CanvasPage>();
             await _db.DeleteAllAsync<Topic>();
             await _db.DeleteAllAsync<LibraryShelf>();
+            localSettings.Values.Remove("ThemeEditionSeedVersion");
 
             var phoDem = await InsertLibraryAsync("Phố đêm", 0);
             var thuHe = await InsertLibraryAsync("Thư mùa hè", 1);

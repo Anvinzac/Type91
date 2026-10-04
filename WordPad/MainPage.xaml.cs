@@ -42,6 +42,7 @@ namespace RectifyPad
     {
         public string Name { get; set; }
         public SolidColorBrush Preview { get; set; }
+        public SolidColorBrush Ink { get; set; }
 
         public override string ToString()
         {
@@ -56,8 +57,8 @@ namespace RectifyPad
         public string FontWeight { get; set; } = "SemiBold";
         public string Alignment { get; set; } = "Center";
         public string LineSpacing { get; set; } = "1.1";
-        public string TextColor { get; set; } = "Black";
-        public string BackgroundColor { get; set; } = "#FAF4EC";
+        public string TextColor { get; set; } = "Graphite";
+        public string BackgroundColor { get; set; } = "#F5F5F7";
         public bool UseRoundedRect { get; set; }
     }
 
@@ -92,9 +93,10 @@ namespace RectifyPad
         private const double CanvasWidth = 1080;
         private const double CanvasHeight = 1920;
         private const double EditorBottomGutter = 36;
+        private const double PhantomSlackRatio = 0.25;
         private DispatcherTimer _fitDelay;
         private string _fitLogPath;
-        private static readonly string[][] PaperSwatches =
+        private static readonly string[][] PaperSwatches = WithThemePapers(new[]
         {
             new[] { "Kem", "#FFF6E8" },
             new[] { "Giấy", "#FAF4EC" },
@@ -112,7 +114,19 @@ namespace RectifyPad
             new[] { "Mực", "#121212" },
             new[] { "Hoàng hôn", "#C45C26" },
             new[] { "Xám", "#2C2C2C" }
-        };
+        });
+
+        private static string[][] WithThemePapers(string[][] classic)
+        {
+            var all = new List<string[]>();
+            foreach (var theme in CanvasThemes.All)
+            {
+                all.Add(new[] { theme.PaperName, theme.PaperHex });
+            }
+
+            all.AddRange(classic);
+            return all.ToArray();
+        }
         private Editor _currentEditor;
         private Border _currentRoot;
         private Border _currentTextContainer;
@@ -227,6 +241,8 @@ namespace RectifyPad
             {
                 _isLoadingSettings = false;
             }
+
+            SyncThemeCombo();
         }
 
         private async Task PersistSettingsAsync()
@@ -289,6 +305,11 @@ namespace RectifyPad
             if (TextColorCombo != null)
             {
                 TextColorCombo.Items.Clear();
+                foreach (var ink in CanvasThemes.Inks)
+                {
+                    TextColorCombo.Items.Add(MakeColorChoice(ink[0], ParseHex(ink[1])));
+                }
+
                 TextColorCombo.Items.Add(MakeColorChoice("Black", Colors.Black));
                 TextColorCombo.Items.Add(MakeColorChoice("Charcoal", ParseHex("#2B2B2B")));
                 TextColorCombo.Items.Add(MakeColorChoice("Navy", ParseHex("#1B365D")));
@@ -325,6 +346,17 @@ namespace RectifyPad
                     BackgroundCombo.Items.Add(MakeColorChoice(swatch[0], ParseHex(swatch[1])));
                 }
             }
+
+            if (ThemeCombo != null)
+            {
+                ThemeCombo.Items.Clear();
+                foreach (var theme in CanvasThemes.All)
+                {
+                    var choice = MakeColorChoice(theme.Name, ParseHex(theme.PaperHex));
+                    choice.Ink = new SolidColorBrush(ResolveColor(theme.Ink));
+                    ThemeCombo.Items.Add(choice);
+                }
+            }
         }
 
         private static ColorChoice MakeColorChoice(string name, Color color)
@@ -334,6 +366,62 @@ namespace RectifyPad
                 Name = name,
                 Preview = new SolidColorBrush(color)
             };
+        }
+
+        private void SyncThemeCombo()
+        {
+            if (ThemeCombo == null || _settings == null)
+            {
+                return;
+            }
+
+            var match = CanvasThemes.Match(_settings.BackgroundColor, _settings.TextColor);
+            bool previous = _isLoadingSettings;
+            _isLoadingSettings = true;
+            if (match == null)
+            {
+                ThemeCombo.SelectedIndex = -1;
+            }
+            else
+            {
+                SelectComboItem(ThemeCombo, match.Name);
+            }
+
+            _isLoadingSettings = previous;
+        }
+
+        private async void ThemeCombo_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isLoadingSettings || _isUpdatingEditor || _isFitting)
+            {
+                return;
+            }
+
+            var theme = CanvasThemes.Find(ThemeCombo.SelectedItem?.ToString());
+            if (theme == null)
+            {
+                return;
+            }
+
+            bool previous = _isLoadingSettings;
+            _isLoadingSettings = true;
+            SelectComboItem(TextColorCombo, theme.Ink);
+            SelectBackgroundByHex(theme.PaperHex);
+            _isLoadingSettings = previous;
+
+            ReadSettingsFromUi();
+            var visual = GetSlideVisual(_currentPageIndex);
+            if (visual?.Page != null && visual.Page.DecorativeMode)
+            {
+                var ignore = ApplyDecorToSelectedAsync();
+            }
+            else
+            {
+                ApplyInkOnly(true);
+            }
+
+            ApplyCanvasBackground();
+            await PersistSettingsAsync();
         }
 
         private static void SelectComboItem(ComboBox combo, string value)
@@ -1715,8 +1803,6 @@ namespace RectifyPad
                 LockEditorTypeface(editor, style);
                 ApplyFormattingToEditor(editor, style);
                 LockEditorTypeface(editor, style);
-                FlushEditorLayout(editor);
-                FitTextToViewport(editor, fillPage);
                 visual.FittedWordCount = CountWords(page.Text);
             }
             finally
@@ -1725,6 +1811,9 @@ namespace RectifyPad
                 _isUpdatingEditor = previousUpdate;
                 _isFitting = previousFit;
             }
+
+            FlushEditorLayout(editor);
+            FitTextToViewport(editor, fillPage);
         }
 
         private async Task FixScreenOverflowAsync(SlideVisual visual)
@@ -1735,89 +1824,9 @@ namespace RectifyPad
             }
 
             await ActivateSlideAsync(visual);
-            var editor = visual.Editor;
-            var page = visual.Page;
-            var style = StyleFromPage(page);
-            float maxSize = ReadBaseSize(style);
-            float minSize = MinFitSize(maxSize);
-            float minLead = ScaleLead(minSize, maxSize, ReadBaseLead(style));
-
-            _isFitting = true;
-            _isUpdatingEditor = true;
-            try
-            {
-                ApplySizeOnly(editor, minSize, minLead);
-                FlushEditorLayout(editor);
-            }
-            finally
-            {
-                _isUpdatingEditor = false;
-                _isFitting = false;
-            }
-
-            if (!EditorTextOverflows(editor))
-            {
-                FitTextToViewport(editor);
-                await _dbService.SavePageAsync(page);
-                return;
-            }
-
-            editor.Document.GetText(TextGetOptions.NoHidden, out string raw);
-            string text = NormalizePlainText(raw).TrimEnd();
-            int words = CountWords(text);
-            if (words <= 1)
-            {
-                FitTextToViewport(editor);
-                await _dbService.SavePageAsync(page);
-                return;
-            }
-
-            int lo = 1;
-            int hi = words - 1;
-            string bestKeep = text;
-            string bestRest = "";
-            while (lo <= hi)
-            {
-                int mid = (lo + hi + 1) / 2;
-                if (!TrySplitOverflow(text, mid, out string keep, out string rest))
-                {
-                    hi = mid - 1;
-                    continue;
-                }
-
-                _isFitting = true;
-                _isUpdatingEditor = true;
-                try
-                {
-                    page.Text = keep;
-                    TrimEditorToText(editor, keep);
-                    ApplySizeOnly(editor, minSize, minLead);
-                    FlushEditorLayout(editor);
-                }
-                finally
-                {
-                    _isUpdatingEditor = false;
-                    _isFitting = false;
-                }
-
-                if (EditorTextOverflows(editor))
-                {
-                    hi = mid - 1;
-                }
-                else
-                {
-                    bestKeep = keep;
-                    bestRest = rest;
-                    lo = mid + 1;
-                }
-            }
-
-            WritePageIntoEditor(visual, bestKeep);
-            await _dbService.SavePageAsync(page);
-            if (!string.IsNullOrWhiteSpace(bestRest))
-            {
-                await OpenOverflowScreenAsync(page, bestRest);
-            }
+            await OverflowUntilFitsAsync(visual.Editor, visual.Page);
+            FitTextToViewport(visual.Editor);
+            await _dbService.SavePageAsync(visual.Page);
         }
 
         private async Task FixScreenScrambleAsync(SlideVisual visual)
@@ -1933,58 +1942,59 @@ namespace RectifyPad
                 CanvasHeight * 0.14);
         }
 
+        private const double MetaFontSize = 44;
+        private const double MetaSideMargin = 72;
+
         private FrameworkElement BuildPageIndexBlob(SlideVisual visual)
         {
             var number = new TextBlock
             {
-                FontSize = 42,
+                FontSize = MetaFontSize,
                 FontWeight = FontWeights.SemiBold,
                 FontFamily = CanvasTypefaces.ToXaml("Be Vietnam Pro", "SemiBold"),
-                CharacterSpacing = 20
+                VerticalAlignment = VerticalAlignment.Center
             };
             var total = new TextBlock
             {
-                FontSize = 16,
-                FontWeight = FontWeights.SemiBold,
-                FontFamily = CanvasTypefaces.ToXaml("Be Vietnam Pro", "SemiBold"),
-                Opacity = 0.72,
-                Margin = new Thickness(2, -2, 0, 0)
+                FontSize = MetaFontSize,
+                FontWeight = FontWeights.Normal,
+                FontFamily = CanvasTypefaces.ToXaml("Be Vietnam Pro", "Normal"),
+                Opacity = 0.5,
+                VerticalAlignment = VerticalAlignment.Center
             };
             visual.PageNumberText = number;
             visual.PageTotalText = total;
 
-            var labels = new StackPanel { Spacing = 0 };
+            var labels = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
             labels.Children.Add(number);
             labels.Children.Add(total);
 
-            var blob = new Border
+            var capsule = new Border
             {
                 Child = labels,
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0),
-                Padding = new Thickness(22, 18, 34, 24),
-                CornerRadius = new CornerRadius(28, 52, 44, 16),
+                Margin = new Thickness(MetaSideMargin, 56, 0, 0),
+                Padding = new Thickness(34, 8, 34, 12),
+                CornerRadius = new CornerRadius(48),
+                BorderThickness = new Thickness(2),
                 IsHitTestVisible = false
             };
-            visual.PageBlob = blob;
-            string paper = visual?.Page != null
-                ? StyleFromPage(visual.Page).BackgroundColor
-                : _settings.BackgroundColor;
-            PaintCornerBlob(blob, number, total, paper);
-            return blob;
+            visual.PageBlob = capsule;
+            var style = visual?.Page != null ? StyleFromPage(visual.Page) : _settings;
+            PaintSlideMeta(visual, style.BackgroundColor, style.TextColor);
+            return capsule;
         }
 
         private FrameworkElement BuildCanvasFooterBlob(SlideVisual visual, bool interactive)
         {
-            string paper = visual?.Page != null
-                ? StyleFromPage(visual.Page).BackgroundColor
-                : _settings.BackgroundColor;
+            var style = visual?.Page != null ? StyleFromPage(visual.Page) : _settings;
             return BuildCanvasFooterBlob(
                 visual,
                 CanvasTitleText(),
                 AlbumNameText(),
-                paper,
+                style.BackgroundColor,
+                style.TextColor,
                 interactive);
         }
 
@@ -1993,93 +2003,64 @@ namespace RectifyPad
             string canvasTitle,
             string albumName,
             string paperHex,
+            string inkName,
             bool interactive)
         {
             var title = new TextBlock
             {
                 Text = canvasTitle,
-                FontSize = 22,
+                FontSize = MetaFontSize,
                 FontWeight = FontWeights.SemiBold,
                 FontFamily = CanvasTypefaces.ToXaml("Be Vietnam Pro", "SemiBold"),
-                TextWrapping = TextWrapping.Wrap,
-                TextAlignment = TextAlignment.Right,
-                MaxLines = 2,
-                TextTrimming = TextTrimming.CharacterEllipsis
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                MaxLines = 1,
+                Opacity = 0.72
             };
-            if (visual != null)
-            {
-                visual.FooterTitleText = title;
-            }
 
-            FrameworkElement album;
+            var rule = new Border
+            {
+                Height = 2,
+                Margin = new Thickness(0, 0, 0, 28),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+
+            var line = new StackPanel();
+            line.Children.Add(rule);
+            line.Children.Add(title);
+
+            var footer = new Border
+            {
+                Child = line,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(MetaSideMargin, 0, MetaSideMargin, 64),
+                Background = new SolidColorBrush(Colors.Transparent)
+            };
             if (interactive)
             {
-                var link = new HyperlinkButton
+                ToolTipService.SetToolTip(footer, "Mở album " + albumName);
+                footer.Tapped += (s, e) =>
                 {
-                    Content = albumName,
-                    FontSize = 16,
-                    FontFamily = CanvasTypefaces.ToXaml("Be Vietnam Pro", "SemiBold"),
-                    Padding = new Thickness(0),
-                    Margin = new Thickness(0, 4, 0, 0),
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    Background = new SolidColorBrush(Colors.Transparent),
-                    BorderThickness = new Thickness(0),
-                    UseSystemFocusVisuals = false
+                    e.Handled = true;
+                    RevealAlbum();
                 };
-                ToolTipService.SetToolTip(link, "Mở album " + albumName);
-                link.Click += (s, e) => RevealAlbum();
-                album = link;
-                if (visual != null)
-                {
-                    visual.FooterAlbumLink = link;
-                }
             }
             else
             {
-                var caption = new TextBlock
-                {
-                    Text = albumName,
-                    FontSize = 16,
-                    FontWeight = FontWeights.SemiBold,
-                    FontFamily = CanvasTypefaces.ToXaml("Be Vietnam Pro", "SemiBold"),
-                    TextAlignment = TextAlignment.Right,
-                    TextDecorations = Windows.UI.Text.TextDecorations.Underline,
-                    Opacity = 0.88,
-                    Margin = new Thickness(0, 4, 0, 0)
-                };
-                album = caption;
-                if (visual != null)
-                {
-                    visual.FooterAlbumLink = caption;
-                }
+                footer.IsHitTestVisible = false;
             }
 
-            var labels = new StackPanel
-            {
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Bottom
-            };
-            labels.Children.Add(title);
-            labels.Children.Add(album);
-
-            var blob = new Border
-            {
-                Child = labels,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Bottom,
-                Margin = new Thickness(0),
-                Padding = new Thickness(28, 16, 22, 18),
-                MaxWidth = 360,
-                MaxHeight = 128,
-                CornerRadius = new CornerRadius(40, 18, 28, 52)
-            };
             if (visual != null)
             {
-                visual.FooterBlob = blob;
+                visual.FooterBlob = footer;
+                visual.FooterRule = rule;
+                visual.FooterTitleText = title;
+                visual.FooterAlbumLink = null;
             }
 
-            PaintCornerBlob(blob, title, album, paperHex);
-            return blob;
+            PaintMeta(null, rule, title, null, paperHex, inkName);
+            return footer;
         }
 
         private void RefreshSlideMeta()
@@ -2105,42 +2086,51 @@ namespace RectifyPad
                     visual.FooterTitleText.Text = canvasTitle;
                 }
 
-                if (visual.FooterAlbumLink is HyperlinkButton link)
+                if (visual.FooterBlob != null && visual.FooterBlob.IsHitTestVisible)
                 {
-                    link.Content = albumName;
-                }
-                else if (visual.FooterAlbumLink is TextBlock caption)
-                {
-                    caption.Text = albumName;
+                    ToolTipService.SetToolTip(visual.FooterBlob, "Mở album " + albumName);
                 }
 
-                string paper = visual.Page != null ? StyleFromPage(visual.Page).BackgroundColor : _settings.BackgroundColor;
-                PaintSlideMeta(visual, paper);
+                var style = visual.Page != null ? StyleFromPage(visual.Page) : _settings;
+                PaintSlideMeta(visual, style.BackgroundColor, style.TextColor);
             }
         }
 
-        private void PaintSlideMeta(SlideVisual visual, string paperHex)
+        private void PaintSlideMeta(SlideVisual visual, string paperHex, string inkName)
         {
             if (visual == null)
             {
                 return;
             }
 
-            PaintCornerBlob(visual.PageBlob, visual.PageNumberText, visual.PageTotalText, paperHex);
-            PaintCornerBlob(visual.FooterBlob, visual.FooterTitleText, visual.FooterAlbumLink, paperHex);
+            PaintMeta(visual.PageBlob, null, visual.PageNumberText, visual.PageTotalText, paperHex, inkName);
+            PaintMeta(null, visual.FooterRule, visual.FooterTitleText, null, paperHex, inkName);
         }
 
-        private static void PaintCornerBlob(Border blob, FrameworkElement labelA, FrameworkElement labelB, string paperHex)
+        private static void PaintMeta(
+            Border capsule,
+            Border rule,
+            FrameworkElement labelA,
+            FrameworkElement labelB,
+            string paperHex,
+            string inkName)
         {
             Color paper = ParseHex(paperHex);
-            bool darkPaper = CanvasContrast.RelativeLuminance(paper) < 0.38;
-            Color wash = darkPaper
-                ? Color.FromArgb(235, 246, 231, 193)
-                : Color.FromArgb(235, 38, 24, 14);
-            Color ink = CanvasContrast.BestInkOn(CanvasContrast.Composite(wash, paper));
-            if (blob != null)
+            Color ink = ResolveColor(inkName);
+            if (CanvasContrast.ContrastRatio(ink, paper) < 3)
             {
-                blob.Background = new SolidColorBrush(wash);
+                ink = CanvasContrast.BestInkOn(paper);
+            }
+
+            if (capsule != null)
+            {
+                capsule.Background = new SolidColorBrush(Color.FromArgb(18, ink.R, ink.G, ink.B));
+                capsule.BorderBrush = new SolidColorBrush(Color.FromArgb(46, ink.R, ink.G, ink.B));
+            }
+
+            if (rule != null)
+            {
+                rule.Background = new SolidColorBrush(Color.FromArgb(52, ink.R, ink.G, ink.B));
             }
 
             var brush = new SolidColorBrush(ink);
@@ -2222,6 +2212,7 @@ namespace RectifyPad
             public Canvas HighlightLayer;
             public Border PageBlob;
             public Border FooterBlob;
+            public Border FooterRule;
             public TextBlock PageNumberText;
             public TextBlock PageTotalText;
             public TextBlock FooterTitleText;
@@ -3275,9 +3266,8 @@ namespace RectifyPad
                 return;
             }
 
-            if (allowOverflow &&
-                page != null &&
-                CountWords(page.Text) > MaxWordsPerScreen &&
+            if (page != null &&
+                !IsLockedScreen(page) &&
                 EditorTextOverflows(editor) &&
                 IsAtMinScale(editor))
             {
@@ -3337,13 +3327,14 @@ namespace RectifyPad
                 return;
             }
 
-            var chunks = PackTextIntoScreens(overflow, NormalWordCount);
-            if (chunks.Count == 0)
+            var chunks = new List<string> { overflow.Trim() };
+            int sourceIndex = _currentTopic.Pages.IndexOf(source);
+            int insertAt = sourceIndex >= 0 ? sourceIndex + 1 : _currentPageIndex + 1;
+            if (sourceIndex >= 0 && sourceIndex < _currentPageIndex)
             {
-                return;
+                _currentPageIndex += chunks.Count;
             }
 
-            int insertAt = _currentPageIndex + 1;
             _isUpdatingPager = true;
             try
             {
@@ -3407,44 +3398,114 @@ namespace RectifyPad
             return text.Split(new[] { ' ', '\r', '\n', '\t' }, StringSplitOptions.RemoveEmptyEntries).Length;
         }
 
-        private static bool TrySplitOverflow(string text, int maxWords, out string keep, out string overflow)
+        private const int BreakWord = 0;
+        private const int BreakClause = 1;
+        private const int BreakSentence = 2;
+
+        private struct TextBreak
         {
-            keep = text ?? "";
-            overflow = "";
-            if (CountWords(keep) <= maxWords)
+            public int End;
+            public int Kind;
+            public int Words;
+        }
+
+        private static List<TextBreak> FindBreaks(string text)
+        {
+            var breaks = new List<TextBreak>();
+            if (string.IsNullOrEmpty(text))
             {
-                return false;
+                return breaks;
             }
 
             int words = 0;
             int i = 0;
-            while (i < keep.Length)
+            while (i < text.Length)
             {
-                while (i < keep.Length && char.IsWhiteSpace(keep[i]))
+                while (i < text.Length && char.IsWhiteSpace(text[i]))
                 {
                     i++;
                 }
 
-                if (i >= keep.Length)
+                if (i >= text.Length)
                 {
                     break;
                 }
 
-                while (i < keep.Length && !char.IsWhiteSpace(keep[i]))
+                while (i < text.Length && !char.IsWhiteSpace(text[i]))
                 {
                     i++;
                 }
 
                 words++;
-                if (words == maxWords)
+                breaks.Add(new TextBreak { End = i, Kind = BreakKindBefore(text, i), Words = words });
+            }
+
+            return breaks;
+        }
+
+        private static int BreakKindBefore(string text, int end)
+        {
+            if (end < text.Length && (text[end] == '\n' || text[end] == '\r'))
+            {
+                return BreakSentence;
+            }
+
+            int k = end - 1;
+            while (k >= 0 && "\"'”’»)]".IndexOf(text[k]) >= 0)
+            {
+                k--;
+            }
+
+            if (k < 0)
+            {
+                return BreakWord;
+            }
+
+            char c = text[k];
+            if (c == '.' || c == '!' || c == '?' || c == '…')
+            {
+                return BreakSentence;
+            }
+
+            if (c == ',' || c == ';' || c == ':' || c == '—' || c == '–')
+            {
+                return BreakClause;
+            }
+
+            return BreakWord;
+        }
+
+        private static int PickBreak(List<TextBreak> breaks, Func<TextBreak, bool> fits)
+        {
+            for (int kind = BreakSentence; kind >= BreakWord; kind--)
+            {
+                for (int b = breaks.Count - 2; b >= 0; b--)
                 {
-                    keep = keep.Substring(0, i).TrimEnd();
-                    overflow = i < text.Length ? text.Substring(i).TrimStart() : "";
-                    return overflow.Length > 0;
+                    if (breaks[b].Kind >= kind && fits(breaks[b]))
+                    {
+                        return b;
+                    }
                 }
             }
 
-            return false;
+            return -1;
+        }
+
+        private static bool TrySplitOverflow(string text, int maxWords, out string keep, out string overflow)
+        {
+            keep = text ?? "";
+            overflow = "";
+            var breaks = FindBreaks(keep);
+            if (breaks.Count <= maxWords)
+            {
+                return false;
+            }
+
+            int pick = PickBreak(breaks, b => b.Words <= maxWords);
+            int end = pick >= 0 ? breaks[pick].End : breaks[Math.Max(0, maxWords - 1)].End;
+            keep = text.Substring(0, end).TrimEnd();
+            overflow = text.Substring(end).TrimStart();
+            return overflow.Length > 0;
         }
 
         private static void FitTypeToWordCount(int words, float baseSize, float baseLead, out float size, out float leading)
@@ -3483,8 +3544,8 @@ namespace RectifyPad
 
                 editor.Document.GetText(TextGetOptions.NoHidden, out text);
                 text = NormalizePlainText(text).TrimEnd();
-                if (CountWords(text) > NormalWordCount &&
-                    TrySplitOverflow(text, NormalWordCount, out string keep, out string rest))
+                if (EditorTextOverflows(editor) &&
+                    TryMeasuredSplit(editor, text, out string keep, out string rest))
                 {
                     overflow = rest;
                     text = keep;
@@ -3493,8 +3554,8 @@ namespace RectifyPad
                     {
                         page.Text = keep;
                         TrimEditorToText(editor, keep);
-                        ApplySizeOnly(editor, minSize, minLead);
                         FlushEditorLayout(editor);
+                        await FitTextToViewportAsync(editor);
                     }
                     finally
                     {
@@ -3514,6 +3575,9 @@ namespace RectifyPad
                 return;
             }
 
+            LogFit(FitTag(page) + "split keep=" + CountWords(text).ToString(CultureInfo.InvariantCulture) +
+                   " carry=" + CountWords(overflow).ToString(CultureInfo.InvariantCulture));
+
             var slide = FindSlide(editor);
             if (slide != null)
             {
@@ -3529,6 +3593,46 @@ namespace RectifyPad
             finally
             {
                 _isPagingOverflow = false;
+            }
+        }
+
+        // Lines before a break wrap identically with or without the text after it, so a break fits
+        // when the glyph just before it lands inside the visible field at the current (floor) size.
+        private static bool TryMeasuredSplit(Editor editor, string text, out string keep, out string rest)
+        {
+            keep = text;
+            rest = "";
+            var breaks = FindBreaks(text);
+            if (breaks.Count < 2)
+            {
+                return false;
+            }
+
+            double limitH = editor.ActualHeight - editor.Padding.Bottom;
+            double limitW = editor.ActualWidth;
+            int pick = PickBreak(breaks, b => GlyphFits(editor, b.End, limitH, limitW));
+            int end = pick >= 0 ? breaks[pick].End : breaks[0].End;
+            keep = text.Substring(0, end).TrimEnd();
+            rest = text.Substring(end).Trim();
+            return rest.Length > 0;
+        }
+
+        private static bool GlyphFits(Editor editor, int end, double limitH, double limitW)
+        {
+            try
+            {
+                var glyph = editor.Document.GetRange(Math.Max(0, end - 1), end);
+                glyph.GetPoint(
+                    HorizontalCharacterAlignment.Right,
+                    VerticalCharacterAlignment.Bottom,
+                    PointOptions.ClientCoordinates,
+                    out Point bottom);
+                const double edge = 2;
+                return bottom.Y <= limitH - edge && bottom.X <= limitW + edge;
+            }
+            catch (ArgumentException)
+            {
+                return false;
             }
         }
 
@@ -3797,7 +3901,7 @@ namespace RectifyPad
             {
                 ApplySizeOnly(editor, maxSize, baseLead);
                 PinEditorTop(editor);
-                LogFit("empty base=" + maxSize.ToString("0.#", CultureInfo.InvariantCulture));
+                LogFit(FitTag(page) + "empty base=" + maxSize.ToString("0.#", CultureInfo.InvariantCulture));
                 return;
             }
 
@@ -3825,7 +3929,7 @@ namespace RectifyPad
                 PinEditorTop(editor);
                 if (Math.Abs(probe.Size - from) > 0.8f || probe.Overflows)
                 {
-                    LogFit("skip cap " + FormatProbe(probe, from, from, "stay"));
+                    LogFit(FitTag(page) + "skip cap " + FormatProbe(probe, from, from, "stay"));
                 }
 
                 return;
@@ -3874,7 +3978,14 @@ namespace RectifyPad
             }
 
             PinEditorTop(editor);
-            LogFit(reason + " " + FormatProbe(after, from, best));
+            LogFit(FitTag(page) + reason + " " + FormatProbe(after, from, best));
+        }
+
+        private static string FitTag(CanvasPage page)
+        {
+            return page == null
+                ? ""
+                : "page=" + page.Id.ToString(CultureInfo.InvariantCulture) + " align=" + (page.Alignment ?? "") + " ";
         }
 
         private async Task<float> BinaryLargestFitAsync(
@@ -3955,6 +4066,8 @@ namespace RectifyPad
         private struct FitProbe
         {
             public bool GlyphOverflow;
+            public bool WidthOverflow;
+            public bool Phantom;
             public bool ScrollOverflow;
             public bool Overflows;
             public bool PointOk;
@@ -4008,15 +4121,26 @@ namespace RectifyPad
                 }
 
                 const double edge = 2;
+                // Right/justified lines end flush with LimitW, so only a glyph past the edge is clipped.
+                probe.WidthOverflow = box.Right > probe.LimitW + edge || bottom.X > probe.LimitW + edge;
                 probe.GlyphOverflow = probe.GlyphOverflow
                     || lastTop < -edge
                     || probe.BottomY > probe.LimitH - edge
-                    || box.Right > probe.LimitW - edge
-                    || bottom.X > probe.LimitW - edge;
+                    || probe.WidthOverflow;
                 probe.Slack = probe.LimitH - probe.BottomY;
             }
 
             probe.Overflows = probe.GlyphOverflow || probe.ScrollOverflow;
+            if (probe.Overflows &&
+                !probe.ScrollOverflow &&
+                !probe.WidthOverflow &&
+                probe.PointOk &&
+                probe.Slack > probe.LimitH * PhantomSlackRatio)
+            {
+                probe.Phantom = true;
+                probe.Overflows = false;
+            }
+
             return probe;
         }
 
@@ -4073,7 +4197,7 @@ namespace RectifyPad
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "{0}words={1} from={2:0.#} to={3:0.#} size={4:0.#} overflow={5} glyph={6} scroll={7} slack={8:0} bottom={9:0} limit={10:0} extent={11:0}/{12:0} view={13:0}x{14:0}",
+                "{0}words={1} from={2:0.#} to={3:0.#} size={4:0.#} overflow={5} glyph={6} scroll={7} slack={8:0} bottom={9:0} limit={10:0} extent={11:0}/{12:0} view={13:0}x{14:0} width={15} phantom={16}",
                 string.IsNullOrEmpty(reason) ? "" : reason + " ",
                 probe.Words,
                 from,
@@ -4088,7 +4212,9 @@ namespace RectifyPad
                 probe.ExtentH,
                 probe.ViewportH,
                 probe.LimitW,
-                probe.LimitH + EditorBottomGutter);
+                probe.LimitH + EditorBottomGutter,
+                probe.WidthOverflow ? 1 : 0,
+                probe.Phantom ? 1 : 0);
         }
 
         private void LogFit(string message)
@@ -4175,7 +4301,7 @@ namespace RectifyPad
                     PointOptions.ClientCoordinates,
                     out Point top);
                 const double edge = 2;
-                return top.Y < -edge || bottom.Y > limitH - edge || bottom.X > limitW - edge;
+                return top.Y < -edge || bottom.Y > limitH - edge || bottom.X > limitW + edge;
             }
             catch (ArgumentException)
             {
@@ -4349,6 +4475,11 @@ namespace RectifyPad
             }
 
             ApplyCanvasBackground();
+            if (colorOnly)
+            {
+                SyncThemeCombo();
+            }
+
             await PersistSettingsAsync();
         }
 
@@ -4428,7 +4559,7 @@ namespace RectifyPad
             _isLoadingSettings = previous;
         }
 
-        private void ApplyInkOnly()
+        private void ApplyInkOnly(bool wholeStory = false)
         {
             var editor = _currentEditor;
             if (editor?.Document == null || _settings == null)
@@ -4436,8 +4567,9 @@ namespace RectifyPad
                 return;
             }
 
-            bool applyToAll = GetSlideVisual(_currentPageIndex)?.Page != null &&
-                              GetSlideVisual(_currentPageIndex).Page.ApplyToAll;
+            bool applyToAll = wholeStory ||
+                              (GetSlideVisual(_currentPageIndex)?.Page != null &&
+                               GetSlideVisual(_currentPageIndex).Page.ApplyToAll);
             Color ink = ResolveColor(_settings.TextColor);
             editor.BeginUpdate();
             try
@@ -4703,7 +4835,7 @@ namespace RectifyPad
             var visual = root?.Tag as SlideVisual;
             if (visual != null)
             {
-                PaintSlideMeta(visual, settings.BackgroundColor);
+                PaintSlideMeta(visual, settings.BackgroundColor, settings.TextColor);
             }
         }
 
@@ -4992,6 +5124,7 @@ namespace RectifyPad
                 CanvasTitleText(),
                 AlbumNameText(),
                 settings.BackgroundColor,
+                settings.TextColor,
                 false));
 
             return new Border
@@ -5192,6 +5325,7 @@ namespace RectifyPad
         private static Color ResolveColor(string color)
         {
             if (color == "White") return Colors.White;
+            if (CanvasThemes.TryInkHex(color, out string themeInk)) return ParseHex(themeInk);
             if (color == "Kem") return ParseHex("#F6E7C1");
             if (color == "Ivory") return ParseHex("#FFF8E7");
             if (color == "Gold") return ParseHex("#E6C36A");
@@ -5227,7 +5361,7 @@ namespace RectifyPad
             var visual = GetSlideVisual(_currentPageIndex);
             if (visual != null)
             {
-                PaintSlideMeta(visual, _settings.BackgroundColor);
+                PaintSlideMeta(visual, _settings.BackgroundColor, _settings.TextColor);
             }
         }
 
@@ -5265,6 +5399,7 @@ namespace RectifyPad
                 RoundedRectToggle.IsOn = _settings.UseRoundedRect;
             }
             _isLoadingSettings = previous;
+            SyncThemeCombo();
         }
 
         private void CopyStyleToPage(CanvasPage page)
@@ -5294,8 +5429,8 @@ namespace RectifyPad
                 LineSpacing = string.IsNullOrWhiteSpace(page.LineSpacing) ? "1.1" : page.LineSpacing,
                 FontWeight = string.IsNullOrWhiteSpace(page.FontWeight) ? "SemiBold" : page.FontWeight,
                 Alignment = string.IsNullOrWhiteSpace(page.Alignment) ? "Center" : page.Alignment,
-                TextColor = string.IsNullOrWhiteSpace(page.TextColor) ? "Black" : page.TextColor,
-                BackgroundColor = string.IsNullOrWhiteSpace(page.BackgroundColor) ? "#FAF4EC" : page.BackgroundColor,
+                TextColor = string.IsNullOrWhiteSpace(page.TextColor) ? "Graphite" : page.TextColor,
+                BackgroundColor = string.IsNullOrWhiteSpace(page.BackgroundColor) ? "#F5F5F7" : page.BackgroundColor,
                 UseRoundedRect = page.UseRoundedRect
             };
         }
@@ -5321,7 +5456,7 @@ namespace RectifyPad
                 }
             }
 
-            return "#FAF4EC";
+            return "#F5F5F7";
         }
 
         private static string BackgroundNameFromHex(string hex)
@@ -5344,7 +5479,7 @@ namespace RectifyPad
                 }
             }
 
-            return "Giấy";
+            return "Sương";
         }
 
         private static Color ParseHex(string hex)
@@ -5414,8 +5549,8 @@ namespace RectifyPad
                     LineSpacing = GetJsonString(obj, "LineSpacing", "1.1"),
                     FontWeight = GetJsonString(obj, "FontWeight", "SemiBold"),
                     Alignment = GetJsonString(obj, "Alignment", "Center"),
-                    TextColor = GetJsonString(obj, "TextColor", "Black"),
-                    BackgroundColor = GetJsonString(obj, "BackgroundColor", "#FAF4EC"),
+                    TextColor = GetJsonString(obj, "TextColor", "Graphite"),
+                    BackgroundColor = GetJsonString(obj, "BackgroundColor", "#F5F5F7"),
                     UseRoundedRect = obj.ContainsKey("UseRoundedRect") && obj["UseRoundedRect"].ValueType == JsonValueType.Boolean && obj["UseRoundedRect"].GetBoolean()
                 };
             }
@@ -5438,8 +5573,8 @@ namespace RectifyPad
             obj["LineSpacing"] = JsonValue.CreateStringValue(settings.LineSpacing ?? "1.1");
             obj["FontWeight"] = JsonValue.CreateStringValue(settings.FontWeight ?? "SemiBold");
             obj["Alignment"] = JsonValue.CreateStringValue(settings.Alignment ?? "Center");
-            obj["TextColor"] = JsonValue.CreateStringValue(settings.TextColor ?? "Black");
-            obj["BackgroundColor"] = JsonValue.CreateStringValue(settings.BackgroundColor ?? "#FAF4EC");
+            obj["TextColor"] = JsonValue.CreateStringValue(settings.TextColor ?? "Graphite");
+            obj["BackgroundColor"] = JsonValue.CreateStringValue(settings.BackgroundColor ?? "#F5F5F7");
             obj["UseRoundedRect"] = JsonValue.CreateBooleanValue(settings.UseRoundedRect);
 
             var file = await ApplicationData.Current.LocalFolder.CreateFileAsync(

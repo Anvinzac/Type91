@@ -8,6 +8,7 @@
     xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
     xmlns:classes="using:RectifyPad.Classes"
     mc:Ignorable="d"
+    RequestedTheme="Light"
     muxc:BackdropMaterial.ApplyToRootOrPageBackground="True">
 
     <Page.Resources>
@@ -229,6 +230,17 @@
                 <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
             </StackPanel>
         </DataTemplate>
+        <DataTemplate x:Key="ThemeChoiceTemplate">
+            <StackPanel Orientation="Horizontal" Spacing="10">
+                <Border Width="30" Height="22" CornerRadius="6" BorderThickness="1"
+                        BorderBrush="#1F000000" Background="{Binding Preview}" VerticalAlignment="Center">
+                    <TextBlock Text="Aa" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{Binding Ink}"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <TextBlock Text="{Binding Name}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </DataTemplate>
         <Style x:Key="CanvasEditorStyle" TargetType="local:Editor">
             <Setter Property="FontFamily" Value="ms-appx:///Assets/Fonts/BeVietnamPro-SemiBold.ttf#Be Vietnam Pro"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
@@ -323,7 +335,7 @@
         </Grid>
 
         <!-- Right Pane: Settings bar + canvas -->
-        <Grid Grid.Column="1" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
+        <Grid Grid.Column="1" Background="#E8E8ED">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
@@ -396,6 +408,15 @@
                                 </ComboBox>
                             </StackPanel>
 
+                            <StackPanel MinWidth="176" Spacing="0">
+                                <TextBlock Text="Theme" Style="{StaticResource SettingsFieldLabel}"/>
+                                <ComboBox x:Name="ThemeCombo"
+                                          HorizontalAlignment="Stretch"
+                                          PlaceholderText="Custom"
+                                          ItemTemplate="{StaticResource ThemeChoiceTemplate}"
+                                          SelectionChanged="ThemeCombo_Changed"/>
+                            </StackPanel>
+
                             <StackPanel MinWidth="150" Spacing="0">
                                 <TextBlock Text="Color" Style="{StaticResource SettingsFieldLabel}"/>
                                 <ComboBox x:Name="TextColorCombo"
@@ -451,7 +472,7 @@
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Bottom" Margin="0,0,0,10" Spacing="8">
                     <Border x:Name="CanvasDock"
                             Padding="14,8,16,8"
-                            CornerRadius="10"
+                            CornerRadius="14"
                             Background="{ThemeResource LayerFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                             BorderThickness="1"

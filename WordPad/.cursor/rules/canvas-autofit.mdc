@@ -1,0 +1,46 @@
+---
+description: Invariants for the 9:16 canvas auto-fit (text must fill each 1080x1920 scene at the largest size that fits)
+globs: MainPage.xaml.cs,Editor.cs,Classes/CanvasPage.cs
+alwaysApply: false
+---
+
+# Canvas auto-fit rules
+
+The fitter (`FitTextToViewportCoreAsync` → `TrySizeAsync` → `ProbeFit`) binary-searches font size.
+One false "overflow" signal makes it shrink to the floor (`MinScaleFactor` = 65%), and the scene ends up
+with text in the top half and an empty bottom. Every rule below exists to stop false overflow signals.
+
+## Overflow detection
+- Vertical overflow is decided by the scroller (`ExtentHeight > ViewportHeight`) and by the last glyph's
+  bottom vs `ActualHeight - Padding.Bottom`. Do not add other vertical signals.
+- Horizontal overflow only counts when a glyph is **past** the edge: `right > LimitW + edge`.
+  Never use `> LimitW - edge`. Canvas editors have zero horizontal padding, so right-aligned and
+  justified lines end exactly at `LimitW`. That check flagged every right-aligned scene as clipped.
+- Keep the phantom guard in `ProbeFit`: overflow with no scroll overflow, no width overflow, and
+  slack > `PhantomSlackRatio` of the height is a measurement error, not overflow.
+- Any new overflow check must hold for all four alignments (Left, Center, Right, Justify), all four
+  typefaces, and both 96 and 108 base sizes. Right-aligned at 108 is the one that broke.
+
+## Overflow: never crop, never cut a sentence
+- Order is fixed: shrink to the largest size where the **last word** is visible, down to the floor.
+  Only if the text still overflows at the floor, carry the rest onto a new screen.
+- Every fit runs this check (`FitAndMaybeOverflowAsync`): no word-count gate, no typing-only flag.
+  A scene left clipped at the floor is a bug.
+- Pick the cut with `TryMeasuredSplit` (measures glyph positions at the floor size), not with word counts.
+  Cut priority: sentence end (`. ! ? …` / newline), then clause (`, ; : —`), then word. Mid-sentence only
+  when a single sentence can't fit on one screen.
+- Carried text goes onto **one** new screen placed right after its source (`OpenOverflowScreenAsync`).
+  That screen fits and splits on its own. Never pre-chunk carried text by word count.
+- Word-count splitting (`TrySplitOverflow`) is only a packing heuristic and must snap to `PickBreak`.
+
+## Measuring
+- Never measure (probe, fit, `EditorTextOverflows`) between `editor.BeginUpdate()` and `EndUpdate()`.
+  Layout is frozen there and the probe reads stale geometry. Call `EndUpdate`, `FlushEditorLayout`, then fit.
+- Apply size with `ApplySizeOnly` across the whole story. Mixed run sizes make `CharacterFormat.Size`
+  undefined, and the probe then logs `size=12` (the fallback).
+
+## Diagnosing
+- `fit-debug.log` lives in the package `LocalState`. Every fit line carries `page=<Id> align=...`.
+- Bad-fit signature: `overflow=1 scroll=0` with large positive `slack` and `size` at the floor.
+  Check the `width=` and `phantom=` fields to see which signal fired before you change thresholds.
+- Fix the detector. Do not paper over it with per-scene size overrides or by raising the floor.
